@@ -364,6 +364,8 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	}
 	if isLaunchAsset {
 		contentType = "application/javascript"
+        // Spec says fileExtension for launchAsset SHOULD be omitted.
+        keyExtensionSuffix = "" 
 	}
 	finalUrl, errUrl := BuildFinalManifestAssetUrlURL(GetAssetEndpoint(), assetFilePath, update.RuntimeVersion, platform, update.Branch)
 	if errUrl != nil {
