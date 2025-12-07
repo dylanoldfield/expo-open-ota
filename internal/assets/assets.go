@@ -99,7 +99,7 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 	if isLaunchAsset {
 		contentType = "application/javascript"
 	} else {
-		contentType = mime.TypeByExtension("." + string(assetMetadata.Ext))
+		contentType = update.GetMimeType(string(assetMetadata.Ext))
 	}
 
 	headers := map[string]string{

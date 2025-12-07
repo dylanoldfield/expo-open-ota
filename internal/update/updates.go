@@ -359,7 +359,7 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	if ext != "" && !strings.HasPrefix(ext, ".") {
 		ext = "." + ext
 	}
-	if t := getMimeType(ext); t != "" {
+	if t := GetMimeType(ext); t != "" {
 		contentType = t
 	}
 	if isLaunchAsset {
@@ -384,7 +384,7 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	return manifestAsset, nil
 }
 
-func getMimeType(ext string) string {
+func GetMimeType(ext string) string {
 	if !strings.HasPrefix(ext, ".") && ext != "" {
 		ext = "." + ext
 	}
