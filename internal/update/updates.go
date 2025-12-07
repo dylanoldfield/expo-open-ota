@@ -354,13 +354,16 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	}
 	keyExtensionSuffix = "." + keyExtensionSuffix
 	contentType := "application/javascript"
-	
+
 	ext := asset.Ext
 	if ext != "" && !strings.HasPrefix(ext, ".") {
 		ext = "." + ext
 	}
-	if t := mime.TypeByExtension(ext); t != "" {
+	if t := getMimeType(ext); t != "" {
 		contentType = t
+	}
+	if isLaunchAsset {
+		contentType = "application/javascript"
 	}
 	finalUrl, errUrl := BuildFinalManifestAssetUrlURL(GetAssetEndpoint(), assetFilePath, update.RuntimeVersion, platform, update.Branch)
 	if errUrl != nil {
@@ -379,6 +382,45 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	}
 	_ = cache.Set(cacheKey, string(cacheValue), nil)
 	return manifestAsset, nil
+}
+
+func getMimeType(ext string) string {
+	if !strings.HasPrefix(ext, ".") && ext != "" {
+		ext = "." + ext
+	}
+	if t := mime.TypeByExtension(ext); t != "" {
+		return t
+	}
+	switch strings.ToLower(ext) {
+	case ".bundle", ".hbc", ".js":
+		return "application/javascript"
+	case ".json":
+		return "application/json"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".svg":
+		return "image/svg+xml"
+	case ".ttf":
+		return "font/ttf"
+	case ".otf":
+		return "font/otf"
+	case ".woff":
+		return "font/woff"
+	case ".woff2":
+		return "font/woff2"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".wav":
+		return "audio/wav"
+	case ".mp4":
+		return "video/mp4"
+	default:
+		return ""
+	}
 }
 
 func appendChannelOverrideToUrl(urlStr string) string {
