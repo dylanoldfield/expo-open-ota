@@ -355,7 +355,9 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	keyExtensionSuffix = "." + keyExtensionSuffix
 	contentType := "application/javascript"
 	if isLaunchAsset {
-		contentType = mime.TypeByExtension(asset.Ext)
+		if t := mime.TypeByExtension(asset.Ext); t != "" {
+			contentType = t
+		}
 	}
 	finalUrl, errUrl := BuildFinalManifestAssetUrlURL(GetAssetEndpoint(), assetFilePath, update.RuntimeVersion, platform, update.Branch)
 	if errUrl != nil {

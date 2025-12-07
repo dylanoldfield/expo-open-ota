@@ -348,6 +348,10 @@ func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
 		return nil, err
 	}
 
+	if resp.Data.App.ById.UpdateChannelByName.BranchMapping == "" {
+		return nil, errors.New("project not found or access denied (check EXPO_APP_ID and EXPO_ACCESS_TOKEN) or channel does not exist")
+	}
+
 	var branchMapping BranchMapping
 	if err := json.Unmarshal([]byte(resp.Data.App.ById.UpdateChannelByName.BranchMapping), &branchMapping); err != nil {
 		return nil, err
