@@ -6,7 +6,6 @@ import (
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"log"
-	"mime"
 	"net/http"
 )
 
