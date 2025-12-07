@@ -12,22 +12,32 @@ import (
 
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
-	channelName := r.Header.Get("expo-channel-name")
-	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
-		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
-		return
-	}
-	if branchMap == nil {
-		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
-		http.Error(w, "No branch mapping found", http.StatusNotFound)
-		return
+	
+	var branchName string
+	queryBranch := r.URL.Query().Get("branch")
+	
+	if queryBranch != "" {
+		branchName = queryBranch
+	} else {
+		channelName := r.Header.Get("expo-channel-name")
+		branchMap, err := services.FetchExpoChannelMapping(channelName)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
+			http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
+			return
+		}
+		if branchMap == nil {
+			log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
+			http.Error(w, "No branch mapping found", http.StatusNotFound)
+			return
+		}
+		branchName = branchMap.BranchName
 	}
 
+	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
+	
 	req := assets.AssetsRequest{
-		Branch:         branchMap.BranchName,
+		Branch:         branchName,
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),
 		Platform:       r.URL.Query().Get("platform"),
