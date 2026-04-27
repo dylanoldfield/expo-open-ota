@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 )
 
 type ExpoUserAccount struct {
@@ -103,7 +104,7 @@ func makeGraphQLRequest(ctx context.Context, query string, variables map[string]
 		req.Header.Set(key, value)
 	}
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
