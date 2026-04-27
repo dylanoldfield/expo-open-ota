@@ -53,10 +53,15 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 type statusRecorder struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
+	if r.wroteHeader {
+		return
+	}
 	r.statusCode = code
+	r.wroteHeader = true
 	r.ResponseWriter.WriteHeader(code)
 }
