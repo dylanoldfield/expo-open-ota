@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -287,11 +288,26 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		"uploadRequests": updateRequests,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("expo-update-id", fmt.Sprintf("%d", updateId))
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	// Marshal up-front and send with an explicit Content-Length rather than
+	// streaming via json.NewEncoder(w). On a first publish to a fresh runtime
+	// version, eoas requests upload URLs for every asset, so this response
+	// carries ~60 presigned URLs (tens of KB). Streaming sends it chunked, and
+	// the Cloudflare/Railway proxy chain truncates the large chunked body,
+	// surfacing as "FetchError: Premature close" in eoas. A fixed-length
+	// response is proxied reliably. Writing the body also commits the 200, so
+	// the previous trailing w.WriteHeader(http.StatusOK) was a no-op that the
+	// logging middleware reported as a superfluous WriteHeader call.
+	payload, err := json.Marshal(response)
+	if err != nil {
 		log.Printf("[RequestID: %s] Error encoding response: %v", requestID, err)
 		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("expo-update-id", fmt.Sprintf("%d", updateId))
+	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
 	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(payload); err != nil {
+		log.Printf("[RequestID: %s] Error writing response: %v", requestID, err)
+	}
 }
