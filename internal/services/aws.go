@@ -43,13 +43,21 @@ func GetS3Client() (*s3.Client, error) {
 			return
 		}
 		baseEndpoint := config.GetEnv("AWS_BASE_ENDPOINT")
-		if baseEndpoint != "" {
-			s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
+		s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
+			// aws-sdk-go-v2 (Jan 2025+) defaults RequestChecksumCalculation to
+			// WhenSupported, which bakes x-amz-sdk-checksum-algorithm /
+			// x-amz-checksum-crc32 into (pre)signed PutObject requests. eoas PUTs
+			// the raw file to the presigned URL without computing that checksum, so
+			// Cloudflare R2 rejects the upload with "500 InternalError". Revert to
+			// WhenRequired so presigned URLs don't demand a checksum the client
+			// can't supply; relax response validation too, which also silences the
+			// "Response has no supported checksum" warning on every download.
+			o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+			o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
+			if baseEndpoint != "" {
 				o.BaseEndpoint = aws.String(baseEndpoint)
-			})
-		} else {
-			s3Client = s3.NewFromConfig(cfg)
-		}
+			}
+		})
 	})
 
 	return s3Client, s3ClientErr
