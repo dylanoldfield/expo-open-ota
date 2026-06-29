@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"expo-open-ota/internal/branch"
 	"expo-open-ota/internal/bucket"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -288,15 +290,19 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		"uploadRequests": updateRequests,
 	}
 
-	// Marshal up-front and send with an explicit Content-Length rather than
-	// streaming via json.NewEncoder(w). On a first publish to a fresh runtime
-	// version, eoas requests upload URLs for every asset, so this response
-	// carries ~60 presigned URLs (tens of KB). Streaming sends it chunked, and
-	// the Cloudflare/Railway proxy chain truncates the large chunked body,
-	// surfacing as "FetchError: Premature close" in eoas. A fixed-length
-	// response is proxied reliably. Writing the body also commits the 200, so
-	// the previous trailing w.WriteHeader(http.StatusOK) was a no-op that the
-	// logging middleware reported as a superfluous WriteHeader call.
+	// On a first publish to a fresh runtime version, eoas requests upload URLs
+	// for every asset, so this response carries ~60 presigned URLs (~80KB). The
+	// Railway edge truncates large response bodies in transit, which eoas's
+	// node-fetch surfaces as "FetchError: Premature close" — even though the Go
+	// server logs a clean 200 (smaller responses, e.g. an ~18KB manifest, pass
+	// fine). gzip the body so the ~80KB shrinks to well under that threshold.
+	// eoas always sends "Accept-Encoding: gzip" and decompresses transparently;
+	// the Railway edge does not re-compress, so there is no double-encoding.
+	//
+	// Marshal and write with an explicit Content-Length rather than streaming
+	// via json.NewEncoder(w): the write commits the 200, so the previous
+	// trailing w.WriteHeader(http.StatusOK) was a no-op the logging middleware
+	// reported as a superfluous WriteHeader call.
 	payload, err := json.Marshal(response)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error encoding response: %v", requestID, err)
@@ -305,6 +311,24 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("expo-update-id", fmt.Sprintf("%d", updateId))
+
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		if _, err := gz.Write(payload); err != nil {
+			log.Printf("[RequestID: %s] Error gzipping response: %v", requestID, err)
+			http.Error(w, "Error encoding response", http.StatusInternalServerError)
+			return
+		}
+		if err := gz.Close(); err != nil {
+			log.Printf("[RequestID: %s] Error finalizing gzip response: %v", requestID, err)
+			http.Error(w, "Error encoding response", http.StatusInternalServerError)
+			return
+		}
+		payload = buf.Bytes()
+		w.Header().Set("Content-Encoding", "gzip")
+	}
+
 	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(payload); err != nil {
