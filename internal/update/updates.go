@@ -85,17 +85,23 @@ func MarkUpdateAsChecked(update types.Update) error {
 	if err != nil || storedMetadata == nil {
 		return err
 	}
-	cacheKeys := []string{ComputeLastUpdateCacheKey(update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
-	for _, cacheKey := range cacheKeys {
-		cache.Delete(cacheKey)
-	}
 	resolvedBucket := bucket.GetBucket()
 	err = StoreUpdateUUIDInMetadata(update)
 	if err != nil {
 		return err
 	}
+	// .check must land before the cache invalidation below. In between, a manifest
+	// request would see this update without its .check file, drop it as invalid,
+	// and re-cache the previous update for the full TTL.
 	reader := strings.NewReader(".check")
-	_ = resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
+	err = resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
+	if err != nil {
+		return err
+	}
+	cacheKeys := []string{ComputeLastUpdateCacheKey(update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
+	for _, cacheKey := range cacheKeys {
+		cache.Delete(cacheKey)
+	}
 	go PreWarmManifestCache(update.Branch, update.RuntimeVersion, "ios")
 	go PreWarmManifestCache(update.Branch, update.RuntimeVersion, "android")
 	return nil

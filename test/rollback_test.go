@@ -13,6 +13,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -113,4 +115,72 @@ func TestGoodRollbackWithoutCommitHash(t *testing.T) {
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId, "Expected updateId to match the latest update")
 	updateType := update.GetUpdateType(*lastUpdate)
 	assert.Equal(t, updateType, types.Rollback, "Expected update type to be rollback")
+}
+
+// Guards the ordering in MarkUpdateAsChecked: the .check file must land before
+// the cache invalidation. StoreUpdateUUIDInMetadata sits between them doing slow
+// bucket I/O, and a /manifest request inside that window sees the new update
+// without its .check file, filters it out via IsUpdateValid, falls back to the
+// previous update and re-caches that one for the full TTL.
+func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	mockExpoForRequestUploadUrlTest("staging")
+	projectRoot, err := findProjectRoot()
+	require.NoError(t, err)
+
+	const branchName = "DO_NOT_USE" // GlobalAfterEach cleans this branch under ./updates
+	const runtimeVersion = "1"
+	const platform = "android"
+	const staleUpdateId = "1700000000000"
+
+	// Same LOCAL_BUCKET_BASE_PATH as createRollbackRequest, so the bucket
+	// singleton built here is the one the rollback handler writes to.
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
+
+	// A previous update for the cache to latch onto; without it there is nothing
+	// stale to serve and the race stays invisible.
+	stalePath := filepath.Join(projectRoot, "./updates", branchName, runtimeVersion, staleUpdateId)
+	require.NoError(t, os.MkdirAll(stalePath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stalePath, "update-metadata.json"),
+		[]byte(`{"platform":"android","commitHash":"stale","updateUUID":"00000000-0000-0000-0000-000000000001"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(stalePath, ".check"), []byte(".check"), 0o644))
+
+	warmed, err := update.GetLatestUpdateBundlePathForRuntimeVersion(branchName, runtimeVersion, platform)
+	require.NoError(t, err)
+	require.NotNil(t, warmed, "fixture setup: planted update not picked up, check LOCAL_BUCKET_BASE_PATH wiring")
+	require.Equal(t, staleUpdateId, warmed.UpdateId, "fixture setup: expected cache warmed with planted update")
+
+	// Read past the handler's return, so a poisoned value must survive to the assert.
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	var reads int64
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_, _ = update.GetLatestUpdateBundlePathForRuntimeVersion(branchName, runtimeVersion, platform)
+					atomic.AddInt64(&reads, 1)
+				}
+			}
+		}()
+	}
+
+	wRollback, _, _, rRollback := createRollbackRequest(projectRoot, branchName, runtimeVersion, "Authorization", "Bearer expo_test_token", platform, "hash")
+	handlers.RollbackHandler(wRollback, rRollback)
+	require.Equal(t, http.StatusOK, wRollback.Code, "rollback handler failed: %s", wRollback.Body.String())
+
+	close(stop)
+	wg.Wait()
+
+	latest, err := update.GetLatestUpdateBundlePathForRuntimeVersion(branchName, runtimeVersion, platform)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	assert.NotEqual(t, staleUpdateId, latest.UpdateId, "lastUpdate cache poisoned with stale update after %d reads", reads)
+	assert.Equal(t, types.Rollback, update.GetUpdateType(*latest), "expected latest update to be a rollback")
 }
