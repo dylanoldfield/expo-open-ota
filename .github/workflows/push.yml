@@ -12,12 +12,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    container:
-      image: ghcr.io/axelmarciano/expo-open-ota-ci:latest
-      credentials:
-        username: axelmarciano
-        password: ${{  secrets.DOCKER_GITHUB_CONTAINER_REGISTRY_TOKEN }}
-
+    # No container: the upstream CI image needs a registry token this fork does
+    # not hold, which made the whole workflow invalid. Tests run on local cache
+    # and a local bucket, so the plain runner plus setup-go is enough.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
